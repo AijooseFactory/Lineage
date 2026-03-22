@@ -1,0 +1,91 @@
+# Lineage Development Environment
+# Project name "dev" → containers appear alongside other dev containers in Docker Desktop
+#
+# Services:
+#   dev-lineage-api — Lineage API backend  (Python / Gunicorn, port 5000 → host 5555)
+#   dev-lineage     — Lineage frontend     (@web/dev-server, port 8001)
+#
+# Network: Lineage_Development
+#
+# The API is mapped to host port 5555 to match the frontend dev server's hardcoded
+# API fallback URL (http://localhost:5555), so no proxy container is required.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml logs -f dev-lineage
+#   docker compose -f docker-compose.dev.yml logs -f dev-lineage-api
+#   docker compose -f docker-compose.dev.yml down
+#   docker compose -f docker-compose.dev.yml down -v    # destroy volumes (fresh state)
+
+name: dev
+
+networks:
+  Lineage_Development:
+    name: Lineage_Development
+    driver: bridge
+
+volumes:
+  lineage-db:
+    name: lineage-db
+  lineage-media:
+    name: lineage-media
+  lineage-users:
+    name: lineage-users
+  lineage-node-modules:
+    name: lineage-node-modules
+
+services:
+
+  # ─────────────────────────────────────────────────────────
+  # dev-lineage-api  — Lineage API backend
+  #
+  # Builds from _lineage-api/Dockerfile (Gramps Web API fork).
+  # Owns and manages the Lineage genealogy database (SQLite by
+  # default; set LINEAGE_DB_URI for PostgreSQL).
+  #
+  # Mapped to host port 5555 to match the frontend dev server's
+  # hardcoded API fallback (http://localhost:5555).
+  # ─────────────────────────────────────────────────────────
+  dev-lineage-api:
+    container_name: dev-lineage-api
+    build:
+      context: ./_lineage-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - Lineage_Development
+    environment:
+      SECRET_KEY:       ${LINEAGE_SECRET_KEY:-dev-secret-change-in-prod}
+      GRAMPSWEB_TREE:   ${LINEAGE_TREE:-Lineage}
+    volumes:
+      - lineage-db:/root/.gramps/grampsdb
+      - lineage-media:/app/media
+      - lineage-users:/app/users
+    ports:
+      - "5555:5000"
+
+  # ─────────────────────────────────────────────────────────
+  # dev-lineage  — Lineage frontend dev server
+  #
+  # LitElement app via @web/dev-server with hot reload.
+  # Source bind-mounted for live edits; node_modules in a
+  # named volume to keep them container-local and writable.
+  #
+  # http://localhost:8001
+  # ─────────────────────────────────────────────────────────
+  dev-lineage:
+    container_name: dev-lineage
+    image: node:20-alpine
+    working_dir: /app
+    restart: unless-stopped
+    networks:
+      - Lineage_Development
+    command: >
+      sh -c "npm install && npm start -- --hostname 0.0.0.0"
+    volumes:
+      - ./:/app
+      - lineage-node-modules:/app/node_modules
+    ports:
+      - "8001:8001"
+    depends_on:
+      - dev-lineage-api

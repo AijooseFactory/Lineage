@@ -19,14 +19,14 @@ Key capabilities:
 ## Architecture
 
 ```
-Lineage (frontend)  ←→  Lineage API (backend)  ←→  Gramps genealogy database
+Lineage (frontend)  ←→  Lineage API (backend)  ←→  Lineage genealogy database
                                                             ↓
                                               Dataset generation pipeline
                                                             ↓
                                               Fine-tuned local model (Ollama)
 ```
 
-The database is the truth layer. The AI model is the specialist analyst. The application coordinates both.
+The Lineage genealogy database is a Gramps-compatible family tree database (SQLite by default, PostgreSQL supported) owned and managed directly by the Lineage API. The database is the truth layer. The AI model is the specialist analyst. The application coordinates both.
 
 ## Related
 

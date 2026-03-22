@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Lineage is a genealogy intelligence platform — not a family-tree viewer. It combines:
-- A canonical genealogy database (Gramps Web / Gramps Web API forks)
+- A canonical genealogy database (a Gramps-compatible family tree database owned by the Lineage API backend — SQLite by default, PostgreSQL supported)
 - A data validation and review layer for genealogical rigor
 - A dataset generation pipeline (GEDCOM → canonical DB → normalized JSON → JSONL)
 - A local fine-tuning stack (Unsloth Recipes + Apple MLX + Ollama)
@@ -142,8 +142,8 @@ Fork from GitHub **only if** Gramps Web API lacks a capability required by Linea
 ### Intended data flow
 ```
 GEDCOM / media
-  → Gramps Web API (canonical DB)
-  → Normalized genealogy JSON
+  → Lineage API (imports into the Lineage genealogy database)
+  → Normalized genealogy JSON (extracted from the DB)
   → JSONL training datasets (Unsloth Recipes)
   → Fine-tuned model (Apple MLX)
   → Deployed assistant (Ollama)

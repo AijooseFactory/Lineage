@@ -1,9 +1,9 @@
 # Lineage Development Environment
 # Project name "dev" → containers appear alongside other dev containers in Docker Desktop
 #
-# Services:
-#   dev-lineage-api — Lineage API backend  (Python / Gunicorn, port 5000 → host 5555)
-#   dev-lineage     — Lineage frontend     (@web/dev-server, port 8001)
+# Services (Docker Desktop strips the "dev-" project prefix from display names):
+#   dev-dev-lineage-api → displays as "dev-lineage-api"  (Python / Gunicorn, port 5555)
+#   dev-dev-lineage     → displays as "dev-lineage"      (@web/dev-server, port 8001)
 #
 # Network: Lineage_Development
 #
@@ -46,7 +46,7 @@ services:
   # Mapped to host port 5555 to match the frontend dev server's
   # hardcoded API fallback (http://localhost:5555).
   # ─────────────────────────────────────────────────────────
-  dev-lineage-api:
+  dev-dev-lineage-api:
     container_name: dev-lineage-api
     build:
       context: ./_lineage-api
@@ -55,8 +55,9 @@ services:
     networks:
       - Lineage_Development
     environment:
-      SECRET_KEY:       ${LINEAGE_SECRET_KEY:-dev-secret-change-in-prod}
-      GRAMPSWEB_TREE:   ${LINEAGE_TREE:-Lineage}
+      GRAMPSWEB_SECRET_KEY:     ${LINEAGE_SECRET_KEY:-dev-secret-change-in-prod}
+      GRAMPSWEB_TREE:           ${LINEAGE_TREE:-Lineage}
+      GRAMPSWEB_CORS_ORIGINS:   "http://localhost:8001"
     volumes:
       - lineage-db:/root/.gramps/grampsdb
       - lineage-media:/app/media
@@ -73,7 +74,7 @@ services:
   #
   # http://localhost:8001
   # ─────────────────────────────────────────────────────────
-  dev-lineage:
+  dev-dev-lineage:
     container_name: dev-lineage
     image: node:20-alpine
     working_dir: /app
@@ -88,4 +89,4 @@ services:
     ports:
       - "8001:8001"
     depends_on:
-      - dev-lineage-api
+      - dev-dev-lineage-api

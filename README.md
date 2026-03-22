@@ -26,7 +26,7 @@ Lineage (frontend)  ←→  Lineage API (backend)  ←→  Lineage genealogy dat
                                               Fine-tuned local model (Ollama)
 ```
 
-The Lineage genealogy database is a Gramps-compatible family tree database (SQLite by default, PostgreSQL supported) owned and managed directly by the Lineage API. The database is the truth layer. The AI model is the specialist analyst. The application coordinates both.
+The database is the truth layer. The AI model is the specialist analyst. The application coordinates both.
 
 ## Related
 

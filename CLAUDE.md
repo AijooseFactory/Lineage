@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Lineage is a genealogy intelligence platform — not a family-tree viewer. It combines:
-- A canonical genealogy database (a Gramps-compatible family tree database owned by the Lineage API backend — SQLite by default, PostgreSQL supported)
+- A canonical genealogy database — a Gramps-compatible family tree database (SQLite by default, PostgreSQL supported) that the Lineage API backend owns and manages directly. This is not a separate external database; the API reads and writes it in the same way Gramps Desktop does, using the same data model.
 - A data validation and review layer for genealogical rigor
 - A dataset generation pipeline (GEDCOM → canonical DB → normalized JSON → JSONL)
 - A local fine-tuning stack (Unsloth Recipes + Apple MLX + Ollama)

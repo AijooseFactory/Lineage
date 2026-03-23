@@ -78,7 +78,7 @@ class GrampsjsAppBar extends GrampsjsAppStateMixin(LitElement) {
         <div id="app-title" slot="title">
           ${this.editMode && this.editTitle
             ? this.editTitle
-            : this._dbInfo?.database?.name || 'Lineage'}
+            : 'Lineage'}
         </div>
         ${
           // eslint-disable-next-line no-nested-ternary

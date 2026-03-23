@@ -181,6 +181,107 @@ Any hit in a *value* (right side) means that string needs updating. Hits in *key
 - `"The Gramps package format (.gpkg) is currently not supported."`
 - `"Please upload a file in Gramps XML (.gramps) format without media files."`
 
+### Upstream contributions
+
+Some Lineage additions are good candidates for contributing back to Gramps Web upstream. When identifying such changes, note them here but **do not create upstream PRs during development** — evaluate after each feature stabilises. Changes worth considering for upstream:
+
+- Ollama embedding backend in `embeddings.py` (additive, backwards-compatible, no Lineage branding)
+- `DEFAULT_MIN_ROLE_AI` config fallback in `auth/__init__.py` (useful for any deployment where per-tree config hasn't been set)
+- Provider-prefix detection fix in `agent.py` (bug fix — model tags with `:` should not be treated as pydantic-ai provider strings when `base_url` is set)
+- **Media ZIP import basename fallback** in `media_importer.py` + `media.py` (bug fix — GEDCOM files from Family Tree Maker and similar apps store absolute host-machine paths; the importer now falls back to matching by filename when no exact relative-path match exists, and updates the stored path in the DB; also adds proper logging to upload failures)
+
+## AI Chat — Local Ollama Configuration
+
+Lineage runs AI Chat against a local Ollama instance (Ollama Desktop on the Mac host), not a cloud AI API.
+
+### Environment variables (set in `docker-compose.dev.yml` + sourced from `Lineage/.env`)
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `GRAMPSWEB_VECTOR_EMBEDDING_MODEL` | `qwen3-embedding:8b` | Ollama embedding model for semantic search |
+| `GRAMPSWEB_LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | Ollama OpenAI-compatible endpoint on the Mac host |
+| `GRAMPSWEB_LLM_MODEL` | `gpt-oss:120b-cloud` | Active LLM for chat (Ollama Cloud authenticated) |
+| `OPENAI_API_KEY` | `ollama` | Sentinel value required by the pydantic-ai OpenAI-compatible client |
+| `OLLAMA_API_KEY` | *(in `.env`, never hardcoded)* | Authenticates `:cloud` model requests through Ollama Cloud |
+| `GRAMPSWEB_DEFAULT_MIN_ROLE_AI` | `4` | Minimum user role required for AI chat access: 0=Everyone, 1=Member+, 2=Contributor+, 3=Editor+, 4=Owner/Admin, 99=Nobody. Defaults to `None` (disabled). Dev is set to `4` (Owners and Admins). Overridable per-tree in Manage Users. |
+| `GRAMPSWEB_LLM_SYSTEM_PROMPT` | *(optional, from `.env`)* | Runtime override for the agent system prompt. Uncomment in `docker-compose.dev.yml` and set `LINEAGE_SYSTEM_PROMPT` in `.env`. Leaves `agent.py` untouched. |
+
+**Hostname rule**: Ollama Desktop runs on the Mac host, so the URL must be `http://host.docker.internal:11434/v1`. Do **not** change this to `http://ollama:11434/v1` unless Ollama is moved into the Docker Compose network as its own service.
+
+### Embedding model — Ollama vs SentenceTransformer (additive, not a replacement)
+
+`_lineage-api/gramps_webapi/api/search/embeddings.py` supports both backends:
+
+- **Ollama path**: activated when `VECTOR_EMBEDDING_MODEL` contains `:` (Ollama tag format, e.g. `qwen3-embedding:8b`) **and** `LLM_BASE_URL` is set. Calls `POST {LLM_BASE_URL}/embeddings` using the `openai` Python library. No local model download.
+- **SentenceTransformer path**: used for all other model names (HuggingFace-style, e.g. `sentence-transformers/all-MiniLM-L6-v2`). Downloads and caches the model locally. This is the original upstream behaviour and is fully preserved.
+
+SentenceTransformer is the upstream default; Ollama support is a Lineage addition. Upstream changes to the SentenceTransformer path should merge cleanly.
+
+### After any model or config change
+
+```bash
+# Rebuild the API image (Python source changes require a rebuild)
+docker compose -f /Users/george/_dev/docker-compose.yml build dev-dev-lineage-api
+
+# Restart the stack
+docker compose -f /Users/george/_dev/docker-compose.yml up -d
+
+# Rebuild the semantic search index (via the admin API)
+curl -X POST http://localhost:5555/api/search/index/semantic \
+     -H "Authorization: Bearer <admin-jwt>"
+```
+
+AI chat access defaults to **Owners and Admins** (role ≥ 4) via `GRAMPSWEB_DEFAULT_MIN_ROLE_AI`. This can be overridden per-tree in **Settings → Manage Users** at runtime. The per-tree setting (`tree_obj.min_role_ai`) takes precedence when set; otherwise the server-wide default applies.
+
+### Files changed from upstream
+
+**Backend (`_lineage-api/`):**
+
+| File | Change |
+|---|---|
+| `gramps_webapi/api/search/embeddings.py` | Added `OllamaEmbeddingModel` class; extended `load_model()` to accept `base_url` + `api_key`; Ollama detected by `:` in model name + base_url present |
+| `gramps_webapi/app.py` | Passes `LLM_BASE_URL` and `OLLAMA_API_KEY` env var to `load_model()` at startup |
+| `gramps_webapi/config.py` | Added `DEFAULT_MIN_ROLE_AI = None` to `DefaultConfig` |
+| `gramps_webapi/auth/__init__.py` | Tree model: `system_prompt_ai` mapped column; `get_tree_permissions()` returns it; `set_tree_details()` accepts it; `get_permissions()` falls back to `DEFAULT_MIN_ROLE_AI` when tree value is `None` |
+| `gramps_webapi/api/llm/agent.py` | Fixed Ollama tag provider-detection bug; rewrote `SYSTEM_PROMPT` — no-fabrication rule first, relationship verification obligation, discrepancy detection, Lineage tone |
+| `gramps_webapi/api/llm/__init__.py` | `answer_with_agent()` uses per-tree `system_prompt_ai` → env `LLM_SYSTEM_PROMPT` → hardcoded default priority chain |
+| `gramps_webapi/api/resources/schemas.py` | `TreeSchema`: added `system_prompt_ai` field |
+| `gramps_webapi/api/resources/trees.py` | `TreeUpdateBodyArgs` + `PUT` handler wire `system_prompt_ai` to `set_tree_details()` |
+| `gramps_webapi/api/media_importer.py` | **Bug fix (upstream candidate):** basename-fallback matching in `_fix_missing_checksums()` for GEDCOM imports with absolute host paths (FTM, legacy exporters); updates stored path in DB on basename match; fixes temp-dir leak on recursive call; adds structured logging to all failure paths |
+| `gramps_webapi/api/media.py` | **Bug fix (upstream candidate):** `MediaHandlerLocal.upload_file()` falls back to basename instead of raising (and swallowed-silently) when absolute path is outside `base_dir` |
+| `alembic_users/versions/9c3e7f1a2b5d_add_system_prompt_ai_to_trees.py` | Migration: adds `system_prompt_ai TEXT` to `trees` table |
+
+**Frontend (`src/`):**
+
+| File | Change |
+|---|---|
+| `src/components/GrampsjsChat.js` | Added `marked` import (GFM enabled); AI messages rendered with `marked.parse()` as `.content` property |
+| `src/components/GrampsjsChatMessage.js` | Added `content` property for shadow-DOM HTML rendering via `unsafeHTML`; full Markdown CSS scoped inside `.markdown-body` |
+| `src/views/GrampsjsViewChatSettings.js` | New view: AI Settings page — editable system prompt, draft auto-save, chat access control, Researcher Information section |
+| `src/components/GrampsjsTabBar.js` | Added `ai: 'AI Settings'` settings tab (canManageUsers gate); removed standalone `researcher` tab |
+| `src/components/GrampsjsPages.js` | Mounts `grampsjs-view-chat-settings`; removed `grampsjs-view-researcher` |
+| `src/GrampsJs.js` | `/settings/researcher` → `/settings/ai` redirect via `replaceState` |
+| `package.json` | Added `marked ^17` dependency |
+
+**Infra:**
+
+| File | Change |
+|---|---|
+| `docker-compose.dev.yml` | Added AI Chat env vars, `env_file: .env`, and `lineage-search-index` volume |
+
+### Media import — how it works after the fix
+
+When a GEDCOM exported from **Family Tree Maker** (or any tool that embeds absolute machine paths) is imported:
+
+1. Media objects are created with paths like `/Users/alice/Documents/FTM Media/photo.jpg` and empty checksums.
+2. User uploads a ZIP of media files (flat or with a subdirectory).
+3. The importer tries an **exact relative-path match** first (existing logic).
+4. If that fails, it falls back to a **basename match** (`photo.jpg` → the one object whose stored path ends in `photo.jpg`). Match is skipped when ambiguous (two objects share the same basename — a warning is logged).
+5. On a successful basename match the stored path in the DB is **updated to the ZIP-relative path** so the file lands at the right location and future imports need no further repair.
+6. The file is uploaded to `MEDIA_BASE_DIR/<rel_zip_path>`.
+
+Re-upload the ZIP after the fix is deployed — all previously failed objects will be linked correctly.
+
 ## Key Constraints
 
 - **Correctness over polish**: Genealogical validity matters more than UI finish or conversational fluency.

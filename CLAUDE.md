@@ -226,12 +226,45 @@ docker compose -f /Users/george/_dev/docker-compose.yml build dev-dev-lineage-ap
 # Restart the stack
 docker compose -f /Users/george/_dev/docker-compose.yml up -d
 
+# Run Alembic users-DB migrations (run after every API rebuild that adds migrations)
+docker exec dev-lineage-api bash -c "cd /app/src && python3 -m alembic upgrade head"
+
 # Rebuild the semantic search index (via the admin API)
 curl -X POST http://localhost:5555/api/search/index/semantic \
      -H "Authorization: Bearer <admin-jwt>"
 ```
 
-AI chat access defaults to **Owners and Admins** (role ≥ 4) via `GRAMPSWEB_DEFAULT_MIN_ROLE_AI`. This can be overridden per-tree in **Settings → Manage Users** at runtime. The per-tree setting (`tree_obj.min_role_ai`) takes precedence when set; otherwise the server-wide default applies.
+AI chat access defaults to **Owners and Admins** (role ≥ 4) via `GRAMPSWEB_DEFAULT_MIN_ROLE_AI`. This can be overridden per-tree in **Settings → AI Settings → Chat Access** at runtime. The per-tree setting (`tree_obj.min_role_ai`) takes precedence when set; otherwise the server-wide default applies.
+
+### AI Settings tab (Settings → AI Settings)
+
+Accessible from the top-right preferences menu → Settings → AI Settings tab. Visible to **Owners and Admins only** (`canManageUsers` permission gate).
+
+The tab contains three sections:
+
+1. **System Prompt** — editable textarea (monospace, 8 000-char limit) for a per-tree custom system prompt. Shows a Default/Custom status pill. Changes auto-saved as a draft to `localStorage` key `lineage:chat-prompt-draft`. Save button PUTs to `/api/trees/-`. Restore Default clears the custom prompt. Data fetched from `/api/trees/-` on mount.
+
+2. **Chat Access** — embeds `<grampsjs-chat-permissions>` to set the minimum user role that can access AI chat for this tree.
+
+3. **Researcher Information** — name, email, phone, and address from `appState.dbInfo.researcher` (populated from `/api/metadata/`). Gated by `!appState.frontendConfig?.hideResearcherDetails`. This content was formerly its own Settings tab; it was merged here as the initial framework for Lineage Deep Research. The standalone `GrampsjsViewResearcher.js` file is still on disk but **no longer imported or mounted** — it is orphaned and can be deleted when a cleanup pass is done.
+
+#### System prompt priority chain
+
+```
+1. Per-tree DB value  (system_prompt_ai column in users SQLite trees table)
+2. Env var            GRAMPSWEB_LLM_SYSTEM_PROMPT  (set in .env / docker-compose)
+3. Hardcoded default  SYSTEM_PROMPT constant in gramps_webapi/api/llm/agent.py
+```
+
+The per-tree value is set/cleared via the AI Settings UI and stored by `set_tree_details(system_prompt_ai=...)` in `auth/__init__.py`. An empty string clears the custom prompt and reverts to the next level.
+
+### Agent behaviour — no-fabrication rules
+
+The `SYSTEM_PROMPT` in `agent.py` is structured so the no-fabrication constraint appears **before** any role or tone instruction, ensuring the model reads it first:
+
+- **READ-ONLY window**: the agent may only state facts that a tool call returned during the current conversation. Nothing from prior knowledge.
+- **Relationships are highest-risk**: terms like "grandfather", "uncle", "cousin" may only be used after `filter_people` with `show_relation_with` has returned that exact label for the target handle.
+- **Discrepancy detection**: if the user refers to someone with a specific relationship (e.g. "my great-great-grandfather George") but the tool returns a different label (e.g. great-great-granduncle), the agent must correct it gently and alert the user to the discrepancy rather than confirming the wrong relationship.
 
 ### Files changed from upstream
 
@@ -258,9 +291,10 @@ AI chat access defaults to **Owners and Admins** (role ≥ 4) via `GRAMPSWEB_DEF
 | `src/components/GrampsjsChat.js` | Added `marked` import (GFM enabled); AI messages rendered with `marked.parse()` as `.content` property |
 | `src/components/GrampsjsChatMessage.js` | Added `content` property for shadow-DOM HTML rendering via `unsafeHTML`; full Markdown CSS scoped inside `.markdown-body` |
 | `src/views/GrampsjsViewChatSettings.js` | New view: AI Settings page — editable system prompt, draft auto-save, chat access control, Researcher Information section |
-| `src/components/GrampsjsTabBar.js` | Added `ai: 'AI Settings'` settings tab (canManageUsers gate); removed standalone `researcher` tab |
-| `src/components/GrampsjsPages.js` | Mounts `grampsjs-view-chat-settings`; removed `grampsjs-view-researcher` |
-| `src/GrampsJs.js` | `/settings/researcher` → `/settings/ai` redirect via `replaceState` |
+| `src/components/GrampsjsTabBar.js` | Added `ai: 'AI Settings'` settings tab (canManageUsers gate); removed standalone `researcher` tab and its `_permissionToSeeTab` case |
+| `src/components/GrampsjsPages.js` | Mounts `grampsjs-view-chat-settings` (canManageUsers gate); removed `grampsjs-view-researcher` mount and import |
+| `src/GrampsJs.js` | `/settings/researcher` → `/settings/ai` redirect via `replaceState` for backwards-compat |
+| `src/views/GrampsjsViewResearcher.js` | **Orphaned** — file still on disk; no longer imported or mounted. Safe to delete in a future cleanup. |
 | `package.json` | Added `marked ^17` dependency |
 
 **Infra:**

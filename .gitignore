@@ -1,5 +1,9 @@
 .directory
 
+## private local files (never commit)
+/.githubignore
+/.env
+
 ## editors
 /.idea
 

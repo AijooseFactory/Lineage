@@ -1,5 +1,6 @@
 import {html, css, LitElement} from 'lit'
 import '@material/mwc-button'
+import {marked} from 'marked'
 
 import {sharedStyles} from '../SharedStyles.js'
 import {GrampsjsAppStateMixin} from '../mixins/GrampsjsAppStateMixin.js'
@@ -7,6 +8,9 @@ import './GrampsjsChatPrompt.js'
 import './GrampsjsChatMessage.js'
 import {setChatHistory, getChatHistory} from '../api.js'
 import {renderMarkdownLinks} from '../util.js'
+
+// Configure marked: GFM (tables, strikethrough) enabled by default in v5+
+marked.use({gfm: true})
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -142,16 +146,24 @@ class GrampsjsChat extends GrampsjsAppStateMixin(LitElement) {
               }
               ${this.messages
                 .toReversed()
-                .map(
-                  message => html`
-                    <grampsjs-chat-message
-                      type="${message.role}"
-                      .appState="${this.appState}"
-                      >${renderMarkdownLinks(
-                        message.message
-                      )}</grampsjs-chat-message
-                    >
-                  `
+                .map(message =>
+                  message.role === 'ai'
+                    ? html`
+                        <grampsjs-chat-message
+                          type="${message.role}"
+                          .content="${marked.parse(message.message)}"
+                          .appState="${this.appState}"
+                        ></grampsjs-chat-message>
+                      `
+                    : html`
+                        <grampsjs-chat-message
+                          type="${message.role}"
+                          .appState="${this.appState}"
+                          >${renderMarkdownLinks(
+                            message.message
+                          )}</grampsjs-chat-message
+                        >
+                      `
                 )}
             </div>
             <div class="prompt">

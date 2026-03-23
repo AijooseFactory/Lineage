@@ -459,6 +459,16 @@ export class GrampsJs extends LitElement {
       })
     }
     if (
+      this.appState.path.page === 'settings' &&
+      this.appState.path.pageId === 'researcher'
+    ) {
+      // Researcher Information was merged into AI Settings
+      window.history.replaceState({}, '', 'settings/ai')
+      this._updateAppState({
+        path: {page: 'settings', pageId: 'ai', pageId2: ''},
+      })
+    }
+    if (
       this.appState.settings.lang &&
       !this._backendStringsLoaded() &&
       !this._loadingStrings

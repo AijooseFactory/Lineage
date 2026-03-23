@@ -156,6 +156,31 @@ GEDCOM / media
 4. Fine-tune local model with MLX, deploy to Ollama
 5. Operate the assistant against the live database
 
+## Rebranding (Lineage vs Gramps Web)
+
+The frontend is whitelabelled — user-visible "Gramps Web" text is replaced with "Lineage" while code identifiers (class names, element names, file format references like "Gramps XML") are left unchanged to keep the upstream fork relationship clean.
+
+**Files changed and what to check after an upstream merge:**
+
+| File | Change | Risk |
+|---|---|---|
+| `index.html` | Title and meta tag text | Low — stable boilerplate; conflict is a one-liner |
+| `manifest.json` | `name` / `short_name` fields | Low — same |
+| `src/components/GrampsjsAppBar.js` line ~81 | Fallback title `'Gramps Web'` → `'Lineage'` | Low — one line |
+| `lang/en.json` | **Values** only (right side of each pair) changed; keys left as-is | Medium — see below |
+
+**`lang/en.json` key-rename risk**: Translation keys and English values are the same string in this file (e.g., `"Welcome to Gramps Web": "Welcome to Lineage"`). If upstream renames a key (rare), the old key is orphaned and the new key reverts to showing the Gramps Web English text. After any upstream pull, run:
+
+```bash
+grep -n "Gramps Web" lang/en.json
+```
+
+Any hit in a *value* (right side) means that string needs updating. Hits in *keys* (left side) are expected and intentional — do not change them.
+
+**Strings intentionally left unchanged** (file format names, not app branding):
+- `"The Gramps package format (.gpkg) is currently not supported."`
+- `"Please upload a file in Gramps XML (.gramps) format without media files."`
+
 ## Key Constraints
 
 - **Correctness over polish**: Genealogical validity matters more than UI finish or conversational fluency.

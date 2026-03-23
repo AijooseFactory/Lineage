@@ -43,8 +43,8 @@ export class GrampsjsSysinfo extends GrampsjsAppStateMixin(LitElement) {
         >
         <span id="copy">
           Gramps ${data?.gramps?.version || '?'}<br />
-          Gramps Web API ${data?.gramps_webapi?.version || '?'}<br />
-          Gramps Web Frontend ${version}<br />
+          Lineage API ${data?.gramps_webapi?.version || '?'}<br />
+          Lineage Frontend ${version}<br />
           Gramps QL ${data?.gramps_ql?.version || '?'}<br />
           Sifts ${data?.search?.sifts?.version || '?'}<br />
           locale: ${data?.locale?.language}<br />

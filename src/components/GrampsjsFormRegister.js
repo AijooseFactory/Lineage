@@ -74,7 +74,7 @@ class GrampsjsFormRegister extends GrampsjsAppStateMixin(LitElement) {
     return html`
       <div id="register-container">
         <form id="register-form" @keydown="${this._checkFormValid}">
-          <h2>${this._('Register to Gramps Web')}</h2>
+          <h2>${this._('Register to Lineage')}</h2>
           <div id="inner-form">
             <md-outlined-text-field
               required

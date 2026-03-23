@@ -106,7 +106,7 @@ class GrampsjsFirstRun extends GrampsjsAppStateMixin(LitElement) {
     return html`
       <div class="container">
         <div class="form">
-          <h2>${this._('Welcome to Gramps Web')}</h2>
+          <h2>${this._('Welcome to Lineage')}</h2>
 
           <h3>
             ${this._('Create an admin account')}
@@ -222,7 +222,7 @@ class GrampsjsFirstRun extends GrampsjsAppStateMixin(LitElement) {
                   @input="${this.checkValidity}"
                   outlined
                   id="base_url"
-                  label="${this._('Gramps Web base URL')}"
+                  label="${this._('Lineage base URL')}"
                   type="url"
                   placeholder="https://grampsweb.mydomain.com"
                 ></mwc-textfield>

@@ -31,6 +31,8 @@ volumes:
     name: lineage-media
   lineage-users:
     name: lineage-users
+  lineage-search-index:
+    name: lineage-search-index
   lineage-node-modules:
     name: lineage-node-modules
 
@@ -54,14 +56,38 @@ services:
     restart: unless-stopped
     networks:
       - Lineage_Development
+    # .env is relative to this compose file (Lineage/.env).
+    # It supplies OLLAMA_API_KEY for Ollama Cloud :cloud model auth.
+    # All other sensitive/runtime vars are set explicitly below.
+    env_file: .env
     environment:
-      GRAMPSWEB_SECRET_KEY:     ${LINEAGE_SECRET_KEY:-dev-secret-change-in-prod}
-      GRAMPSWEB_TREE:           ${LINEAGE_TREE:-Lineage}
-      GRAMPSWEB_CORS_ORIGINS:   "http://localhost:8001"
+      GRAMPSWEB_SECRET_KEY:               ${LINEAGE_SECRET_KEY:-dev-secret-change-in-prod}
+      GRAMPSWEB_TREE:                     ${LINEAGE_TREE:-Lineage}
+      GRAMPSWEB_CORS_ORIGINS:             "http://localhost:8001"
+      # ── AI Chat ────────────────────────────────────────────────────────────
+      # Semantic search embedding model (Ollama, running on Mac host)
+      GRAMPSWEB_VECTOR_EMBEDDING_MODEL:   qwen3-embedding:8b
+      # Ollama OpenAI-compatible endpoint on the Mac host
+      GRAMPSWEB_LLM_BASE_URL:             http://host.docker.internal:11434/v1
+      # Active LLM for chat (Ollama Cloud authenticated model)
+      GRAMPSWEB_LLM_MODEL:               gpt-oss:120b-cloud
+      # Required sentinel value for the OpenAI-compatible client used by pydantic-ai
+      OPENAI_API_KEY:                     ollama
+      # OLLAMA_API_KEY is loaded from env_file (.env) — do NOT hardcode here.
+      # It authenticates :cloud model requests through Ollama Cloud.
+      # ── Chat access default ────────────────────────────────────────────────
+      # 4 = ROLE_OWNER — enables chat for Owners + Administrators by default.
+      # The UI in Manage Users can override this per-tree at runtime.
+      GRAMPSWEB_DEFAULT_MIN_ROLE_AI:      4
+      # ── Custom system prompt (optional) ───────────────────────────────────
+      # Uncomment and set LINEAGE_SYSTEM_PROMPT in .env to override the
+      # default system prompt in agent.py without touching code.
+      # GRAMPSWEB_LLM_SYSTEM_PROMPT: ${LINEAGE_SYSTEM_PROMPT}
     volumes:
       - lineage-db:/root/.gramps/grampsdb
       - lineage-media:/app/media
       - lineage-users:/app/users
+      - lineage-search-index:/app/indexdir   # persists semantic search index
     ports:
       - "5555:5000"
 

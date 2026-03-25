@@ -331,10 +331,18 @@ curl -X POST http://localhost:5555/api/search/index/semantic \
      -H "Authorization: Bearer <admin-jwt>"
 ```
 
-**Weaviate object counts (fully projected):**
-- `NoteChunk`: ~6,000 (from 5,823 notes — long notes create multiple chunks)
-- `SourceChunk`: ~209
-- `MediaChunk`: ~1,164
+**Weaviate object counts (fully projected, as of latest reindex):**
+- `NoteChunk`: ~6,005 (from 5,823 notes — long notes create multiple chunks)
+- `SourceChunk`: 209
+- `MediaChunk`: 1,164
+
+**Neo4j relationship counts (fully projected):**
+- 2,535 Person nodes
+- 2,027 `CHILD_OF` edges (person→parentFamily)
+- 3,870 `PARENT_OF` edges (parent→child, direct person-to-person)
+- Persons connected by SPOUSE_OF via Family nodes
+
+**Bilateral ancestor traversal fix**: The original Cypher used `(target)-[:CHILD_OF|SPOUSE_OF*1..N]->` (outbound only). Since SPOUSE_OF goes FROM person TO family (not from family to person), following it outbound from a Family node found nothing — both maternal and paternal ancestor lines were silently missing from `hybrid_search` results. Fix: added `PARENT_OF` direct person→person edges at projection time, updated Cypher to use `(ancestor)-[:PARENT_OF*1..N]->(target)` for ancestor queries.
 
 ### Tree name resolution — `get_db_manager` fix
 
@@ -357,7 +365,7 @@ Gramps stores databases by UUID dirname (e.g., `e3a54d56-88e7-4517-a910-81cda8f6
 | `gramps_webapi/api/llm/tools.py` | All agent tools including `get_enslaved_ancestors`, `get_enslavers_of_ancestors`, `hybrid_search`; `filter_people` with relationship labels; `filter_events` |
 | `gramps_webapi/api/llm/deps.py` | `AgentDeps` dataclass: added `user_person_handle`, `user_person_gramps_id` fields |
 | `gramps_webapi/api/tasks.py` | `process_chat()` separates `thought` and `response` fields; uses `sanitize_answer()` + `extract_thought_block()` pipeline |
-| `gramps_webapi/api/lineage/` | **New directory**: Hybrid GraphRAG stack — `clients.py`, `intent_parser.py`, `retriever.py`, `normalizer.py`, `vector_projector.py`, `graph_projector.py`, `projection_tasks.py` |
+| `gramps_webapi/api/lineage/` | **New directory**: Hybrid GraphRAG stack — `clients.py`, `intent_parser.py`, `retriever.py` (PARENT_OF Cypher, bilateral fix), `normalizer.py`, `vector_projector.py`, `graph_projector.py` (PARENT_OF edge creation), `projection_tasks.py` |
 | `scripts/lineage_reindex.py` | Admin CLI for full reindex (Neo4j + Weaviate + SQLite) without HTTP API; auto-discovers tree dirname via `name.txt` scan |
 | `gramps_webapi/api/util.py` | `get_db_manager()`: resolves human-readable tree name to dirname correctly (UUID vs name lookup) |
 | `gramps_webapi/api/resources/schemas.py` | `TreeSchema`: added `system_prompt_ai` field |

@@ -1,8 +1,9 @@
 import {html, css, LitElement} from 'lit'
 import {unsafeHTML} from 'lit/directives/unsafe-html.js'
 import {classMap} from 'lit/directives/class-map.js'
+import {marked} from 'marked'
 import '@material/web/icon/icon.js'
-import {mdiFamilyTree} from '@mdi/js'
+import {mdiFamilyTree, mdiLightbulbOutline, mdiChevronDown} from '@mdi/js'
 
 import {sharedStyles} from '../SharedStyles.js'
 import {GrampsjsAppStateMixin} from '../mixins/GrampsjsAppStateMixin.js'
@@ -195,6 +196,69 @@ class GrampsjsChatMessage extends GrampsjsAppStateMixin(LitElement) {
         .markdown-body strong {
           font-weight: 600;
         }
+
+        /* ── Thinking / Reasoning Block ──────────────────────────── */
+
+        details.thought-details {
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--grampsjs-main-color) 6%, transparent),
+            color-mix(in srgb, var(--grampsjs-main-color) 3%, transparent)
+          );
+          border: 1px solid color-mix(in srgb, var(--grampsjs-main-color) 20%, transparent);
+          border-radius: 12px;
+          margin-bottom: 12px;
+          overflow: hidden;
+        }
+
+        details.thought-details summary {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          padding: 9px 14px;
+          font-size: 0.8em;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--grampsjs-main-color);
+          cursor: pointer;
+          list-style: none;
+          user-select: none;
+          transition: opacity 0.15s;
+        }
+
+        details.thought-details summary::-webkit-details-marker {
+          display: none;
+        }
+
+        details.thought-details summary:hover {
+          opacity: 0.75;
+        }
+
+        details.thought-details summary .chevron {
+          margin-left: auto;
+          transition: transform 0.2s ease;
+        }
+
+        details.thought-details[open] summary .chevron {
+          transform: rotate(180deg);
+        }
+
+        .thought-body {
+          padding: 2px 16px 14px;
+          font-size: 0.875em;
+          line-height: 1.6;
+          color: var(--grampsjs-body-font-color-40);
+          font-style: italic;
+          border-top: 1px solid color-mix(in srgb, var(--grampsjs-main-color) 15%, transparent);
+        }
+
+        .thought-body p {
+          margin: 0.35em 0;
+        }
+
+        .thought-body p:first-child { margin-top: 0.5em; }
+        .thought-body p:last-child  { margin-bottom: 0; }
       `,
     ]
   }
@@ -206,6 +270,8 @@ class GrampsjsChatMessage extends GrampsjsAppStateMixin(LitElement) {
       // Passed as a Lit property (not attribute) so the HTML string is set
       // directly without attribute serialisation.
       content: {type: String},
+      // Reasoning / thought process from the AI
+      thought: {type: String},
     }
   }
 
@@ -213,6 +279,7 @@ class GrampsjsChatMessage extends GrampsjsAppStateMixin(LitElement) {
     super()
     this.type = 'human'
     this.content = ''
+    this.thought = ''
   }
 
   render() {
@@ -241,6 +308,30 @@ class GrampsjsChatMessage extends GrampsjsAppStateMixin(LitElement) {
           : ''}
         <slot name="no-wrap"></slot>
         <div class="slot-wrap">
+          ${this.thought
+            ? html`
+                <details class="thought-details">
+                  <summary>
+                    ${renderIconSvg(
+                      mdiLightbulbOutline,
+                      'var(--grampsjs-main-color)',
+                      150
+                    )}
+                    Reasoning
+                    <span class="chevron"
+                      >${renderIconSvg(
+                        mdiChevronDown,
+                        'var(--grampsjs-main-color)',
+                        150
+                      )}</span
+                    >
+                  </summary>
+                  <div class="thought-body">
+                    ${unsafeHTML(marked.parse(this.thought))}
+                  </div>
+                </details>
+              `
+            : ''}
           ${this.content
             ? html`<div class="markdown-body">${unsafeHTML(this.content)}</div>`
             : html`<slot></slot>`}

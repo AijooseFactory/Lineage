@@ -151,7 +151,8 @@ class GrampsjsChat extends GrampsjsAppStateMixin(LitElement) {
                     ? html`
                         <grampsjs-chat-message
                           type="${message.role}"
-                          .content="${marked.parse(message.message)}"
+                          .thought="${message.thought || ''}"
+                          .content="${marked.parse(message.answer || message.message)}"
                           .appState="${this.appState}"
                         ></grampsjs-chat-message>
                       `
@@ -186,15 +187,28 @@ class GrampsjsChat extends GrampsjsAppStateMixin(LitElement) {
     const {messages} = this
 
     if (message.role === 'ai') {
-      // for AI messages, we display the message word by word
-      // to simulate streaming response (which it's not, but
-      // users may be used to it.)
-      const words = message.message.split(' ')
+      // Prefer the pre-separated thought field (new API).
+      // Fall back to parsing <thought>…</thought> from the message string
+      // for responses from older API versions or chat history replays.
+      let thought = message.thought || ''
+      let answer = message.message
+      if (!thought) {
+        const thoughtMatch = message.message.match(/<thought>([\s\S]*?)<\/thought>/)
+        if (thoughtMatch) {
+          thought = thoughtMatch[1].trim()
+          answer = message.message.replace(/<thought>[\s\S]*?<\/thought>/, '').trim()
+        }
+      }
+
+      // Display the answer word-by-word to simulate streaming.
+      // The thought block appears immediately (no animation — it arrived
+      // already complete from the model's reasoning phase).
+      const words = answer.split(' ')
       const nWords = words.length
       for (let end = 1; end <= nWords; end += 1) {
         this.messages = [
           ...messages.slice(-(maxLength - 1)),
-          {role: 'ai', message: words.slice(0, end).join(' ')},
+          {role: 'ai', thought, answer: words.slice(0, end).join(' ')},
         ]
         // eslint-disable-next-line no-await-in-loop
         await delay(Math.ceil(1000 / nWords))
@@ -219,6 +233,9 @@ class GrampsjsChat extends GrampsjsAppStateMixin(LitElement) {
     const payload = {
       query: this.messages[this.messages.length - 1].message,
     }
+    if (this.appState?.settings?.homePerson) {
+      payload.home_person_gramps_id = this.appState.settings.homePerson;
+    }
     if (this.messages.length > 1) {
       payload.history = this.messages.slice(0, this.messages.length - 1)
     }
@@ -232,9 +249,13 @@ class GrampsjsChat extends GrampsjsAppStateMixin(LitElement) {
         message: this._(data.error),
       }
     } else {
+      // The API returns separate `response` (answer) and `thought` (reasoning)
+      // fields since the thinking-model update.  Fall back to legacy behaviour
+      // where <thought>…</thought> was embedded in the response string.
       message = {
         role: 'ai',
         message: data.data.response,
+        thought: data.data.thought || '',
       }
     }
 

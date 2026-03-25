@@ -266,6 +266,82 @@ The `SYSTEM_PROMPT` in `agent.py` is structured so the no-fabrication constraint
 - **Relationships are highest-risk**: terms like "grandfather", "uncle", "cousin" may only be used after `filter_people` with `show_relation_with` has returned that exact label for the target handle.
 - **Discrepancy detection**: if the user refers to someone with a specific relationship (e.g. "my great-great-grandfather George") but the tool returns a different label (e.g. great-great-granduncle), the agent must correct it gently and alert the user to the discrepancy rather than confirming the wrong relationship.
 
+### Thinking model support
+
+Lineage runs a **thinking model** (currently `gpt-oss:120b-cloud` via Ollama Cloud). The response pipeline:
+
+```
+Model emits:
+  <think>…</think>           ← model-native chain-of-thought (stripped completely)
+  <thought>…</thought>       ← visible reasoning block (extracted for UI)
+  {prose answer}             ← final answer shown to user
+
+Backend pipeline (llm/__init__.py + tasks.py):
+  1. strip_native_thinking()  → removes <think> tokens
+  2. sanitize_answer()        → strip_native_thinking + URL cleanup + markdown cleanup
+  3. extract_thought_block()  → splits (thought, answer) tuple
+  4. tasks.py returns {"response": answer, "thought": thought} to frontend
+
+Frontend (GrampsjsChat.js + GrampsjsChatMessage.js):
+  - Reads separate `data.data.response` and `data.data.thought` fields
+  - Falls back to legacy <thought>…</thought> parsing for old history entries
+  - Thought shown as collapsible <details>/<summary> panel (CSS-only chevron)
+  - Answer streams word-by-word; thought appears immediately collapsed
+```
+
+### Agent tools
+
+| Tool | Purpose |
+|---|---|
+| `get_current_date` | Returns today's ISO date |
+| `search_genealogy_database` | Semantic search via SQLite FTS index |
+| `filter_people` | Filter by name, birth/death, ancestry, gender, relationship |
+| `filter_events` | Filter events by type, date, place, participant |
+| `get_enslaved_ancestors` | Walk ancestor chain; return those with enslaved-status evidence |
+| `get_enslavers_of_ancestors` | Scan enslaved ancestors' notes for planter/estate references |
+| `hybrid_search` | Hybrid GraphRAG: Weaviate + Neo4j + canonical DB (conditional) |
+
+### Hybrid GraphRAG (`LINEAGE_HYBRID_RAG_ENABLED=true`)
+
+Three-layer pipeline in `gramps_webapi/api/lineage/`:
+
+1. **Weaviate** — semantic vector search over `NoteChunk`, `MediaChunk`, `SourceChunk` collections. Each note/source/media object is chunked and embedded via `qwen3-embedding:8b` (Ollama).
+2. **Neo4j** — graph relationship traversal (`CHILD_OF`, `SPOUSE_OF` edges). 2,535 persons, 2,027 `CHILD_OF` edges, 15,760 citations projected.
+3. **Canonical Gramps DB** — full person records fetched by handle to enrich graph-only results.
+
+**Key files:**
+
+| File | Role |
+|---|---|
+| `api/lineage/clients.py` | `Neo4jClient`, `WeaviateClient` singletons |
+| `api/lineage/intent_parser.py` | Typed `IntentResult`; no model-generated Cypher |
+| `api/lineage/retriever.py` | `hybrid_retrieve()` orchestrator + graceful fallback |
+| `api/lineage/vector_projector.py` | `project_full()` — embeds all notes/sources/media into Weaviate |
+| `api/lineage/graph_projector.py` | `project_graph()` — writes persons + relationships to Neo4j |
+| `api/lineage/normalizer.py` | `normalize_person()`, `normalize_note()`, etc. |
+| `scripts/lineage_reindex.py` | Admin CLI: full reindex without HTTP API or Celery |
+
+**Projection trigger** (after any bulk data change):
+```bash
+docker exec dev-lineage-api python3 /app/src/scripts/lineage_reindex.py
+```
+Or via the HTTP API with an admin JWT:
+```bash
+curl -X POST http://localhost:5555/api/search/index/semantic \
+     -H "Authorization: Bearer <admin-jwt>"
+```
+
+**Weaviate object counts (fully projected):**
+- `NoteChunk`: ~6,000 (from 5,823 notes — long notes create multiple chunks)
+- `SourceChunk`: ~209
+- `MediaChunk`: ~1,164
+
+### Tree name resolution — `get_db_manager` fix
+
+Gramps stores databases by UUID dirname (e.g., `e3a54d56-88e7-4517-a910-81cda8f60033/`) with a `name.txt` containing the human-readable name ("Lineage"). The API `tree` parameter is the **human-readable name**, not the UUID.
+
+`get_db_manager()` in `util.py` resolves this: checks if `tree` is a literal existing directory first; if not, passes it as `name=` (human-readable lookup). The `lineage_reindex.py` script auto-discovers the UUID by scanning `name.txt` files.
+
 ### Files changed from upstream
 
 **Backend (`_lineage-api/`):**
@@ -276,8 +352,14 @@ The `SYSTEM_PROMPT` in `agent.py` is structured so the no-fabrication constraint
 | `gramps_webapi/app.py` | Passes `LLM_BASE_URL` and `OLLAMA_API_KEY` env var to `load_model()` at startup |
 | `gramps_webapi/config.py` | Added `DEFAULT_MIN_ROLE_AI = None` to `DefaultConfig` |
 | `gramps_webapi/auth/__init__.py` | Tree model: `system_prompt_ai` mapped column; `get_tree_permissions()` returns it; `set_tree_details()` accepts it; `get_permissions()` falls back to `DEFAULT_MIN_ROLE_AI` when tree value is `None` |
-| `gramps_webapi/api/llm/agent.py` | Fixed Ollama tag provider-detection bug; rewrote `SYSTEM_PROMPT` — no-fabrication rule first, relationship verification obligation, discrepancy detection, Lineage tone |
-| `gramps_webapi/api/llm/__init__.py` | `answer_with_agent()` uses per-tree `system_prompt_ai` → env `LLM_SYSTEM_PROMPT` → hardcoded default priority chain |
+| `gramps_webapi/api/llm/agent.py` | Fixed Ollama tag provider-detection bug; rewrote `SYSTEM_PROMPT` — mandatory `<thought>` block, no-fabrication rules, enslaver tools guidance; registered `get_enslaved_ancestors` + `get_enslavers_of_ancestors` + `hybrid_search` |
+| `gramps_webapi/api/llm/__init__.py` | `answer_with_agent()` + thinking model pipeline: `strip_native_thinking()`, `extract_thought_block()`, `sanitize_answer()`; per-tree system prompt priority chain; `extract_user_identity_from_history()` |
+| `gramps_webapi/api/llm/tools.py` | All agent tools including `get_enslaved_ancestors`, `get_enslavers_of_ancestors`, `hybrid_search`; `filter_people` with relationship labels; `filter_events` |
+| `gramps_webapi/api/llm/deps.py` | `AgentDeps` dataclass: added `user_person_handle`, `user_person_gramps_id` fields |
+| `gramps_webapi/api/tasks.py` | `process_chat()` separates `thought` and `response` fields; uses `sanitize_answer()` + `extract_thought_block()` pipeline |
+| `gramps_webapi/api/lineage/` | **New directory**: Hybrid GraphRAG stack — `clients.py`, `intent_parser.py`, `retriever.py`, `normalizer.py`, `vector_projector.py`, `graph_projector.py`, `projection_tasks.py` |
+| `scripts/lineage_reindex.py` | Admin CLI for full reindex (Neo4j + Weaviate + SQLite) without HTTP API; auto-discovers tree dirname via `name.txt` scan |
+| `gramps_webapi/api/util.py` | `get_db_manager()`: resolves human-readable tree name to dirname correctly (UUID vs name lookup) |
 | `gramps_webapi/api/resources/schemas.py` | `TreeSchema`: added `system_prompt_ai` field |
 | `gramps_webapi/api/resources/trees.py` | `TreeUpdateBodyArgs` + `PUT` handler wire `system_prompt_ai` to `set_tree_details()` |
 | `gramps_webapi/api/media_importer.py` | **Bug fix (upstream candidate):** basename-fallback matching in `_fix_missing_checksums()` for GEDCOM imports with absolute host paths (FTM, legacy exporters); updates stored path in DB on basename match; fixes temp-dir leak on recursive call; adds structured logging to all failure paths |
@@ -288,8 +370,8 @@ The `SYSTEM_PROMPT` in `agent.py` is structured so the no-fabrication constraint
 
 | File | Change |
 |---|---|
-| `src/components/GrampsjsChat.js` | Added `marked` import (GFM enabled); AI messages rendered with `marked.parse()` as `.content` property |
-| `src/components/GrampsjsChatMessage.js` | Added `content` property for shadow-DOM HTML rendering via `unsafeHTML`; full Markdown CSS scoped inside `.markdown-body` |
+| `src/components/GrampsjsChat.js` | Added `marked` import (GFM enabled); AI messages rendered with `marked.parse()` as `.content` property; reads separate `response` + `thought` API fields; falls back to `<thought>` tag parsing; word-by-word streaming animation |
+| `src/components/GrampsjsChatMessage.js` | `content` property (pre-parsed HTML) rendered via `unsafeHTML` inside `.markdown-body`; `thought` property renders as native `<details>/<summary>` collapsible panel with CSS-only chevron rotation, gradient background, marked.parse() Markdown support |
 | `src/views/GrampsjsViewChatSettings.js` | New view: AI Settings page — editable system prompt, draft auto-save, chat access control, Researcher Information section |
 | `src/components/GrampsjsTabBar.js` | Added `ai: 'AI Settings'` settings tab (canManageUsers gate); removed standalone `researcher` tab and its `_permissionToSeeTab` case |
 | `src/components/GrampsjsPages.js` | Mounts `grampsjs-view-chat-settings` (canManageUsers gate); removed `grampsjs-view-researcher` mount and import |
